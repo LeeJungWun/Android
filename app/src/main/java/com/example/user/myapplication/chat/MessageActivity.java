@@ -19,6 +19,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.example.user.myapplication.R;
 import com.example.user.myapplication.model.ChatModel;
+import com.example.user.myapplication.model.NotificationModel;
 import com.example.user.myapplication.model.UserModel;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnSuccessListener;
@@ -27,10 +28,24 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ServerValue;
 import com.google.firebase.database.ValueEventListener;
+import com.google.gson.Gson;
 
+import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.TimeZone;
+
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
 
 public class MessageActivity extends AppCompatActivity {
 
@@ -42,6 +57,10 @@ public class MessageActivity extends AppCompatActivity {
     private String chatRoomUid;
 
     private RecyclerView recyclerView;
+
+    private SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy.MM.dd HH:mm");
+
+    private UserModel destinationUermodel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,6 +93,7 @@ public class MessageActivity extends AppCompatActivity {
 
                     ChatModel.Comment comment = new ChatModel.Comment();
                     comment.uid = uid;
+                    comment.timestamp = ServerValue.TIMESTAMP;
                     comment.message = editText.getText().toString();
                     FirebaseDatabase.getInstance().getReference().child("chatrooms").child(chatRoomUid).child("comments").push().setValue(comment).addOnCompleteListener(new OnCompleteListener<Void>() {
                         @Override
@@ -85,6 +105,39 @@ public class MessageActivity extends AppCompatActivity {
             }
         });
         checkChatRoom();
+    }
+
+    void sendGcm(){
+        Gson gson = new Gson();
+
+        NotificationModel notificationModel = new NotificationModel();
+        notificationModel.to = destinationUermodel.pushToken;
+        notificationModel.notification.title = "보낸이 아이디";
+        notificationModel.notification.text = editText.getText().toString();
+
+
+        RequestBody requestBody = RequestBody.create(MediaType.parse("application/json; charset=utf8"),gson.toJson(notificationModel));
+
+        Request request = new Request.Builder()
+                .header("Content-Type","application/json")
+                .addHeader("Authorization","key=AIzaSyD5JnLoy86RFeHyydC01PwmoBel-4JiZ6s")
+                .url("https://gcm-http.googleapis.com/gcm/send")
+                .post(requestBody)
+                .build();
+        OkHttpClient okHttpClient = new OkHttpClient();
+        okHttpClient.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+
+            }
+        });
+
+
     }
 
     void  checkChatRoom(){
@@ -112,14 +165,14 @@ public class MessageActivity extends AppCompatActivity {
     class RecyclerViewAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder>{
 
         List<ChatModel.Comment> comments;
-        UserModel usermodel;
+
         public RecyclerViewAdapter(){
             comments = new ArrayList<>();
 
             FirebaseDatabase.getInstance().getReference().child("users").child(destinatonUid).addListenerForSingleValueEvent(new ValueEventListener() {
                 @Override
                 public void onDataChange(DataSnapshot dataSnapshot) {
-                    usermodel = dataSnapshot.getValue(UserModel.class);
+                    destinationUermodel = dataSnapshot.getValue(UserModel.class);
                     getMessageList();
                 }
 
@@ -172,16 +225,21 @@ public class MessageActivity extends AppCompatActivity {
                 //상대방이 보낸 메시지
             }else{
                 Glide.with(holder.itemView.getContext())
-                        .load(usermodel.profileImageUrl)
+                        .load(destinationUermodel.profileImageUrl)
                         .apply(new RequestOptions().circleCrop())
                         .into(messageViewHolder.imageView_profile);
-                messageViewHolder.textview_name.setText(usermodel.userName);
+                messageViewHolder.textview_name.setText(destinationUermodel.userName);
                 messageViewHolder.linearLayout_destination.setVisibility(View.VISIBLE);
                 messageViewHolder.textView_message.setBackgroundResource(R.drawable.leftbubble);
                 messageViewHolder.textView_message.setText(comments.get(position).message);
                 messageViewHolder.textView_message.setTextSize(25);
                 messageViewHolder.linearLayout_main.setGravity(Gravity.LEFT);
             }
+            long unixTime = (long)comments.get(position).timestamp;
+            Date date = new Date(unixTime);
+            simpleDateFormat.setTimeZone(TimeZone.getTimeZone("Asia/Seoul"));
+            String time = simpleDateFormat.format(date);
+            messageViewHolder.textView_timestamp.setText(time);
         }
 
         @Override
@@ -195,6 +253,7 @@ public class MessageActivity extends AppCompatActivity {
             public ImageView imageView_profile;
             public LinearLayout linearLayout_destination;
             public LinearLayout linearLayout_main;
+            public TextView textView_timestamp;
 
             public MessageViewHolder(View view) {
                 super(view);
@@ -204,7 +263,16 @@ public class MessageActivity extends AppCompatActivity {
                 linearLayout_destination = (LinearLayout)view.findViewById(R.id.messageItem_linearlayout_destination);
 
                 linearLayout_main = (LinearLayout)view.findViewById(R.id.messageItem_linearlayout_main);
+                textView_timestamp = (TextView)view.findViewById(R.id.messageItem_textView_timestamp);
+
             }
         }
+    }
+
+    @Override
+    public void onBackPressed() {
+        finish();
+        //피니쉬 다음에 넣어야 애니메이션 동작
+        overridePendingTransition(R.anim.fromleft,R.anim.toright);
     }
 }
